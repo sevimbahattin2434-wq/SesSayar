@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="tr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fındık Sayacı</title>
+<style>
+:root{--bg:#fbf7f0;--fg:#2b2118;--card:#fff;--ac:#a0602b;--mut:#7a6a5a;--bd:#e6dccd;--ok:#2e7d32;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1c1713;--fg:#f1e7da;--card:#272019;--ac:#d9955a;--mut:#a8998a;--bd:#3b3128;--ok:#7bc47f;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#1c1713;--fg:#f1e7da;--card:#272019;--ac:#d9955a;--mut:#a8998a;--bd:#3b3128;--ok:#7bc47f;color-scheme:dark}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px system-ui,sans-serif}
+main{max-width:480px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:14px;margin-bottom:12px}
+h2{font-size:15px;margin:0 0 6px}
+p{margin:4px 0;color:var(--mut);font-size:13px}
+#cnt{font-size:96px;font-weight:700;text-align:center;color:var(--ac);line-height:1.1}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+button{flex:1;min-width:110px;padding:12px;border-radius:12px;border:1px solid var(--ac);background:var(--card);color:var(--ac);font-size:15px;font-weight:600}
+button.on{background:var(--ac);color:var(--bg)}
+#lv{height:8px;background:var(--bd);border-radius:4px;overflow:hidden;margin-top:8px}
+#lvb{height:100%;width:0;background:var(--ok)}
+input[type=range]{width:100%}
+#st{min-height:18px}
+</style></head><body><main>
+<div class="card"><div id="cnt">0</div>
+<div id="lv"><div id="lvb"></div></div>
+<p id="st">Hazır. Önce aşağıdan tanıtma yap.</p>
+<div class="row"><button id="bGo">Saymayı başlat</button><button id="bRs">Sıfırla</button></div>
+<div class="row"><button id="bWr">Son sayım yanlıştı</button><button id="bPl">+1</button></div></div>
+
+<div class="card"><h2>1. Fındık kır (örnek)</h2>
+<p>Başlat, 15-20 fındığı kır, durdur. Telefon sayarken de aynı mesafede dursun.</p>
+<p>Kayıtlı çat örneği: <b id="nP">0</b></p>
+<div class="row"><button id="bTr">Çat kaydını başlat</button><button id="bCP">Çatları sil</button></div></div>
+
+<div class="card"><h2>2. Ortam sesi (çat değil)</h2>
+<p>TV açık, insanlar konuşurken 20 sn kayıt. Fındık kırma.</p>
+<p>Kayıtlı ortam örneği: <b id="nN">0</b></p>
+<div class="row"><button id="bAm">20 sn ortam kaydı</button><button id="bCN">Ortamı sil</button></div></div>
+
+<div class="card"><h2>Hassasiyet</h2>
+<p>Çok yanlış sayıyorsa sola, kaçırıyorsa sağa kaydır.</p>
+<input type="range" id="sn" min="0.5" max="2" step="0.05" value="1"></div>
+</main>
+<script>
+const $=i=>document.getElementById(i);
+let ctx,an,fbuf,tbuf,mode='idle',count=0,last=null,sens=1,floor=0.002,prev=0,cool=0,cap=null,amT=null;
+let pos=[],neg=[];
+try{pos=JSON.parse(localStorage.getItem('fs_pos')||'[]');neg=JSON.parse(localStorage.getItem('fs_neg')||'[]')}catch(e){}
+function save(){try{localStorage.setItem('fs_pos',JSON.stringify(pos));localStorage.setItem('fs_neg',JSON.stringify(neg))}catch(e){}ui()}
+function ui(){$('nP').textContent=pos.length;$('nN').textContent=neg.length;$('cnt').textContent=count}
+function say(t){$('st').textContent=t}
+let edges=[];
+async function mic(){
+  if(ctx){if(ctx.state!=='running')await ctx.resume();return true}
+  try{
+    const s=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+    ctx=new (window.AudioContext||window.webkitAudioContext)();
+    const src=ctx.createMediaStreamSource(s);
+    an=ctx.createAnalyser();an.fftSize=1024;an.smoothingTimeConstant=0;
+    src.connect(an);
+    fbuf=new Float32Array(an.frequencyBinCount);tbuf=new Float32Array(an.fftSize);
+    let p=2;for(let i=0;i<=16;i++){let e=Math.max(p+(i?1:0),Math.round(2*Math.pow(200,i/16)));edges.push(e);p=e}
+    try{navigator.wakeLock&&navigator.wakeLock.request('screen')}catch(e){}
+    loop();return true;
+  }catch(e){const m='Mikrofon açılamadı: '+(e&&e.name?e.name:'bilinmeyen hata')+(navigator.mediaDevices?'':' (bu sayfada mikrofon desteği kapalı)');say(m);alert(m);return false}
+}
+function bands(){const b=[];for(let i=0;i<16;i++){let s=0;for(let k=edges[i];k<edges[i+1];k++)s+=Math.pow(10,fbuf[k]/10);b.push(s/(edges[i+1]-edges[i]))}return b}
+function loop(){
+  requestAnimationFrame(loop);
+  an.getFloatTimeDomainData(tbuf);
+  let s=0;for(let i=0;i<tbuf.length;i++)s+=tbuf[i]*tbuf[i];
+  const rms=Math.sqrt(s/tbuf.length);
+  an.getFloatFrequencyData(fbuf);
+  const now=performance.now();
+  $('lvb').style.width=Math.min(100,rms*400)+'%';
+  if(cap){
+    const b=bands();for(let i=0;i<16;i++)cap.b[i]+=b[i];
+    cap.pk=Math.max(cap.pk,rms);cap.last=rms;cap.n++;
+    if(cap.n>=4){finish(cap);cap=null;cool=now+180}
+  }else if(mode!=='idle'&&now>cool){
+    const ratio=mode==='ambient'?1.4:1.8;
+    if(rms>Math.max(floor*3,0.004)&&rms>prev*ratio){
+      const b=bands();cap={b:b,pk:rms,last:rms,n:1};
+    }
+  }
+  if(!cap)floor=floor*0.98+rms*0.02;
+  prev=rms;
+}
+function finish(c){
+  const db=c.b.map(v=>10*Math.log10(v/4+1e-12));
+  const m=db.reduce((a,b)=>a+b,0)/16;
+  const f=db.map(v=>v-m);
+  f.push(Math.max(-30,Math.min(0,20*Math.log10(c.last/c.pk+1e-9)))/3);
+  handle(f);
+}
+function dist(a,b){let s=0;for(let i=0;i<a.length;i++){const d=a[i]-b[i];s+=d*d}return Math.sqrt(s/a.length)}
+function nn(f,set,skip){let m=1e9;for(const g of set){if(g===skip)continue;const d=dist(f,g);if(d<m)m=d}return m}
+function thr(){
+  if(pos.length<3)return 4;
+  let t=0;for(const p of pos)t+=nn(p,pos,p);t/=pos.length;
+  return Math.max(t*1.6,1.5);
+}
+function handle(f){
+  if(mode==='train'){pos.push(f);save();say('Çat örneği alındı.');return}
+  if(mode==='ambient'){neg.push(f);save();return}
+  if(mode==='count'){
+    if(!pos.length){say('Önce çat örneği kaydet.');return}
+    const dp=nn(f,pos),T=thr()*sens;
+    let ok=dp<=T;
+    if(ok&&neg.length&&nn(f,neg)<dp*0.9)ok=false;
+    if(ok){count++;last=f;ui();say('ÇAT sayıldı (fark '+dp.toFixed(1)+' / sınır '+T.toFixed(1)+')');beep();try{navigator.vibrate&&navigator.vibrate(30)}catch(e){}}
+    else say('Elendi (fark '+dp.toFixed(1)+' / sınır '+T.toFixed(1)+')');
+  }
+}
+function beep(){const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=880;g.gain.value=0.05;o.connect(g);g.connect(ctx.destination);o.start();o.stop(ctx.currentTime+0.06)}
+function setMode(m){
+  mode=m;cap=null;cool=0;
+  $('bGo').classList.toggle('on',m==='count');$('bGo').textContent=m==='count'?'Saymayı durdur':'Saymayı başlat';
+  $('bTr').classList.toggle('on',m==='train');$('bTr').textContent=m==='train'?'Kaydı durdur':'Çat kaydını başlat';
+  $('bAm').classList.toggle('on',m==='ambient');
+  if(m==='idle'){clearInterval(amT);$('bAm').textContent='20 sn ortam kaydı'}
+}
+$('bGo').onclick=async()=>{if(mode==='count'){setMode('idle');say('Durdu.');return}if(await mic()){setMode('count');say('Dinliyor...')}};
+$('bTr').onclick=async()=>{if(mode==='train'){setMode('idle');say('Çat örneği: '+pos.length);return}if(await mic()){setMode('train');say('Fındık kır...')}};
+$('bAm').onclick=async()=>{
+  if(mode==='ambient'){setMode('idle');return}
+  if(await mic()){setMode('ambient');let t=20;$('bAm').textContent='Kayıt: '+t+' sn';say('Ortam sesi kaydediliyor...');
+    amT=setInterval(()=>{t--;if(t<=0){setMode('idle');say('Ortam örneği: '+neg.length)}else $('bAm').textContent='Kayıt: '+t+' sn'},1000)}
+};
+$('bRs').onclick=()=>{count=0;last=null;ui()};
+$('bPl').onclick=()=>{count++;ui()};
+$('bWr').onclick=()=>{if(last){count=Math.max(0,count-1);neg.push(last);last=null;save();say('Düzeltildi, bu ses artık çat sayılmaz.')}};
+$('bCP').onclick=()=>{if(confirm('Çat örnekleri silinsin mi?')){pos=[];save()}};
+$('bCN').onclick=()=>{if(confirm('Ortam örnekleri silinsin mi?')){neg=[];save()}};
+$('sn').oninput=e=>{sens=+e.target.value};
+ui();
+</script></body></html>
